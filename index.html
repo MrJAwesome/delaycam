@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Delay Cam</title>
+  <style>
+    :root {
+      --bg: #000;
+      --panel: rgba(12, 12, 14, 0.78);
+      --text: #fff;
+      --muted: rgba(255,255,255,.65);
+      --accent: #0a84ff;
+      --danger: #ff453a;
+      --track: rgba(255,255,255,.25);
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+      overflow: hidden;
+      touch-action: manipulation;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      overflow: hidden;
+    }
+
+    video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: #000;
+    }
+
+    #previewVideo { z-index: 1; }
+    #playbackVideo { z-index: 2; display: none; }
+
+    .overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding:
+        calc(env(safe-area-inset-top) + 10px)
+        12px
+        calc(env(safe-area-inset-bottom) + 12px);
+      transition: opacity .18s ease;
+      pointer-events: none;
+    }
+
+    .overlay.hidden {
+      opacity: 0;
+    }
+
+    .topbar,
+    .controls {
+      pointer-events: auto;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      background: var(--panel);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-radius: 16px;
+      padding: 10px 12px;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      background: #8e8e93;
+    }
+
+    .dot.recording {
+      background: var(--danger);
+      box-shadow: 0 0 0 5px rgba(255,69,58,.18);
+      animation: pulse 1.3s infinite;
+    }
+
+    @keyframes pulse {
+      0%,100% { opacity: 1; }
+      50% { opacity: .45; }
+    }
+
+    .statusText {
+      min-width: 0;
+    }
+
+    .statusText strong,
+    .statusText span {
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .statusText strong { font-size: 14px; }
+    .statusText span { font-size: 12px; color: var(--muted); margin-top: 1px; }
+
+    button {
+      appearance: none;
+      border: 0;
+      border-radius: 13px;
+      background: rgba(255,255,255,.14);
+      color: #fff;
+      font: inherit;
+      font-weight: 650;
+      padding: 11px 14px;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: .4;
+      cursor: default;
+    }
+
+    .primary { background: var(--accent); }
+    .danger { background: var(--danger); }
+
+    .controls {
+      background: var(--panel);
+      backdrop-filter: blur(22px);
+      -webkit-backdrop-filter: blur(22px);
+      border-radius: 22px;
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .timeRow {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .timeRow strong {
+      color: #fff;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #scrubber {
+      width: 100%;
+      accent-color: #fff;
+    }
+
+    .buttonRow {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .hint {
+      text-align: center;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    #tapCatcher {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+    }
+
+    #startScreen {
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle at center, #17171b 0%, #000 70%);
+      padding: 24px;
+    }
+
+    .startCard {
+      width: min(92vw, 420px);
+      background: rgba(24,24,27,.94);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 24px;
+      padding: 22px;
+      text-align: center;
+      box-shadow: 0 24px 80px rgba(0,0,0,.45);
+    }
+
+    .startCard h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+    }
+
+    .startCard p {
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .startCard button {
+      width: 100%;
+      font-size: 17px;
+      padding: 15px;
+    }
+
+    .smallNote {
+      margin-top: 12px;
+      color: rgba(255,255,255,.45);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <video id="previewVideo" autoplay muted playsinline></video>
+    <video id="playbackVideo" playsinline muted></video>
+    <div id="tapCatcher"></div>
+
+    <div id="overlay" class="overlay">
+      <div class="topbar">
+        <div class="status">
+          <div id="statusDot" class="dot"></div>
+          <div class="statusText">
+            <strong id="statusTitle">Not recording</strong>
+            <span id="statusSub">10:00 rolling delay buffer</span>
+          </div>
+        </div>
+        <button id="liveBtn" disabled>Live</button>
+      </div>
+
+      <div class="controls">
+        <div class="timeRow">
+          <span>Oldest</span>
+          <strong id="playheadLabel">LIVE</strong>
+          <span>Live</span>
+        </div>
+
+        <input id="scrubber" type="range" min="0" max="1000" value="1000" disabled />
+
+        <div class="timeRow">
+          <span id="bufferLabel">Buffer 00:00</span>
+          <span id="delayLabel">Delay 00:00</span>
+        </div>
+
+        <div class="buttonRow">
+          <button id="pauseBtn" disabled>Pause</button>
+          <button id="resumeBtn" disabled>Resume</button>
+        </div>
+
+        <div class="hint">Tap the video to hide or restore all controls.</div>
+      </div>
+    </div>
+
+    <div id="startScreen">
+      <div class="startCard">
+        <h1>Delay Cam</h1>
+        <p>Records a rolling 10-minute camera buffer. Scrub backward to review a play, then jump back to live.</p>
+        <button id="startBtn" class="primary">Start Camera</button>
+        <div class="smallNote">On iPhone, camera access requires HTTPS or localhost and Safari must grant camera permission.</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const BUFFER_MS = 10 * 60 * 1000;
+  const CHUNK_MS = 1000;
+
+  const previewVideo = document.getElementById('previewVideo');
+  const playbackVideo = document.getElementById('playbackVideo');
+  const overlay = document.getElementById('overlay');
+  const tapCatcher = document.getElementById('tapCatcher');
+  const startScreen = document.getElementById('startScreen');
+  const startBtn = document.getElementById('startBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const resumeBtn = document.getElementById('resumeBtn');
+  const liveBtn = document.getElementById('liveBtn');
+  const scrubber = document.getElementById('scrubber');
+  const statusDot = document.getElementById('statusDot');
+  const statusTitle = document.getElementById('statusTitle');
+  const statusSub = document.getElementById('statusSub');
+  const bufferLabel = document.getElementById('bufferLabel');
+  const delayLabel = document.getElementById('delayLabel');
+  const playheadLabel = document.getElementById('playheadLabel');
+
+  let stream = null;
+  let recorder = null;
+  let chunks = []; // { blob, start, end }
+  let recordingStartedAt = 0;
+  let pausedAt = null;
+  let totalPausedMs = 0;
+  let isPaused = false;
+  let controlsHidden = false;
+  let playbackUrl = null;
+  let selectedDelayMs = 0;
+  let lastScrubValue = 1000;
+
+  function fmt(ms) {
+    const total = Math.max(0, Math.round(ms / 1000));
+    const m = Math.floor(total / 60).toString().padStart(2, '0');
+    const s = (total % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  function activeElapsedMs() {
+    if (!recordingStartedAt) return 0;
+    const now = isPaused && pausedAt ? pausedAt : Date.now();
+    return Math.max(0, now - recordingStartedAt - totalPausedMs);
+  }
+
+  function availableBufferMs() {
+    if (!chunks.length) return 0;
+    return Math.min(BUFFER_MS, chunks[chunks.length - 1].end - chunks[0].start);
+  }
+
+  function pruneChunks() {
+    if (!chunks.length) return;
+    const newestEnd = chunks[chunks.length - 1].end;
+    const cutoff = newestEnd - BUFFER_MS - 5000;
+    while (chunks.length > 1 && chunks[0].end < cutoff) chunks.shift();
+  }
+
+  function setStatus() {
+    if (!recorder) {
+      statusDot.className = 'dot';
+      statusTitle.textContent = 'Not recording';
+      return;
+    }
+
+    if (isPaused) {
+      statusDot.className = 'dot';
+      statusTitle.textContent = 'Paused';
+      statusSub.textContent = 'Buffer is frozen';
+    } else {
+      statusDot.className = 'dot recording';
+      statusTitle.textContent = 'Recording';
+      statusSub.textContent = '10:00 rolling delay buffer';
+    }
+  }
+
+  function updateUI() {
+    const avail = availableBufferMs();
+    bufferLabel.textContent = `Buffer ${fmt(avail)}`;
+    delayLabel.textContent = `Delay ${fmt(selectedDelayMs)}`;
+    playheadLabel.textContent = selectedDelayMs < 1200 ? 'LIVE' : `-${fmt(selectedDelayMs)}`;
+
+    pauseBtn.disabled = !recorder || isPaused;
+    resumeBtn.disabled = !recorder || !isPaused;
+    liveBtn.disabled = !recorder;
+    scrubber.disabled = !recorder || avail < 1000;
+
+    if (selectedDelayMs === 0 && lastScrubValue !== 1000) {
+      scrubber.value = 1000;
+      lastScrubValue = 1000;
+    }
+  }
+
+  async function chooseMimeType() {
+    const options = [
+      'video/mp4;codecs=h264,aac',
+      'video/mp4',
+      'video/webm;codecs=vp8,opus',
+      'video/webm'
+    ];
+    return options.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported?.(t)) || '';
+  }
+
+  async function startCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30, max: 60 }
+        },
+        audio: true
+      });
+
+      previewVideo.srcObject = stream;
+      await previewVideo.play();
+
+      const mimeType = await chooseMimeType();
+      recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+      chunks = [];
+      recordingStartedAt = Date.now();
+      totalPausedMs = 0;
+      isPaused = false;
+
+      recorder.addEventListener('dataavailable', e => {
+        if (!e.data || e.data.size === 0) return;
+        const end = activeElapsedMs();
+        const start = chunks.length ? chunks[chunks.length - 1].end : Math.max(0, end - CHUNK_MS);
+        chunks.push({ blob: e.data, start, end });
+        pruneChunks();
+      });
+
+      recorder.addEventListener('pause', () => {
+        isPaused = true;
+        pausedAt = Date.now();
+        setStatus();
+        updateUI();
+      });
+
+      recorder.addEventListener('resume', () => {
+        if (pausedAt) totalPausedMs += Date.now() - pausedAt;
+        pausedAt = null;
+        isPaused = false;
+        setStatus();
+        updateUI();
+      });
+
+      recorder.start(CHUNK_MS);
+      startScreen.style.display = 'none';
+      setStatus();
+      updateUI();
+    } catch (err) {
+      console.error(err);
+      alert(`Camera could not start. ${err.message || err}`);
+    }
+  }
+
+  function pauseRecording() {
+    if (recorder?.state === 'recording') recorder.pause();
+  }
+
+  function resumeRecording() {
+    if (recorder?.state === 'paused') recorder.resume();
+  }
+
+  function buildPlaybackBlob(targetDelayMs) {
+    if (!chunks.length) return null;
+    const newestEnd = chunks[chunks.length - 1].end;
+    const target = Math.max(chunks[0].start, newestEnd - targetDelayMs);
+
+    let startIndex = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      if (chunks[i].end >= target) {
+        startIndex = i;
+        break;
+      }
+    }
+
+    const selected = chunks.slice(startIndex);
+    if (!selected.length) return null;
+    const type = selected[0].blob.type || recorder?.mimeType || 'video/mp4';
+    return new Blob(selected.map(c => c.blob), { type });
+  }
+
+  async function showDelay(delayMs) {
+    const avail = availableBufferMs();
+    selectedDelayMs = Math.min(delayMs, avail);
+
+    if (selectedDelayMs < 1200) {
+      goLive();
+      return;
+    }
+
+    const blob = buildPlaybackBlob(selectedDelayMs);
+    if (!blob) return;
+
+    if (playbackUrl) URL.revokeObjectURL(playbackUrl);
+    playbackUrl = URL.createObjectURL(blob);
+    playbackVideo.src = playbackUrl;
+    playbackVideo.style.display = 'block';
+    previewVideo.style.visibility = 'hidden';
+
+    try {
+      await playbackVideo.play();
+    } catch (_) {}
+
+    updateUI();
+  }
+
+  function goLive() {
+    selectedDelayMs = 0;
+    playbackVideo.pause();
+    playbackVideo.removeAttribute('src');
+    playbackVideo.load();
+    playbackVideo.style.display = 'none';
+    previewVideo.style.visibility = 'visible';
+    if (playbackUrl) {
+      URL.revokeObjectURL(playbackUrl);
+      playbackUrl = null;
+    }
+    scrubber.value = 1000;
+    lastScrubValue = 1000;
+    updateUI();
+  }
+
+  scrubber.addEventListener('input', () => {
+    const avail = availableBufferMs();
+    const value = Number(scrubber.value);
+    lastScrubValue = value;
+    const fractionBack = (1000 - value) / 1000;
+    selectedDelayMs = avail * fractionBack;
+    delayLabel.textContent = `Delay ${fmt(selectedDelayMs)}`;
+    playheadLabel.textContent = selectedDelayMs < 1200 ? 'LIVE' : `-${fmt(selectedDelayMs)}`;
+  });
+
+  scrubber.addEventListener('change', async () => {
+    await showDelay(selectedDelayMs);
+  });
+
+  tapCatcher.addEventListener('click', () => {
+    controlsHidden = !controlsHidden;
+    overlay.classList.toggle('hidden', controlsHidden);
+  });
+
+  overlay.addEventListener('click', e => e.stopPropagation());
+  startBtn.addEventListener('click', startCamera);
+  pauseBtn.addEventListener('click', pauseRecording);
+  resumeBtn.addEventListener('click', resumeRecording);
+  liveBtn.addEventListener('click', goLive);
+
+  setInterval(() => {
+    if (!recorder) return;
+    pruneChunks();
+    updateUI();
+  }, 500);
+})();
+</script>
+</body>
+</html>
